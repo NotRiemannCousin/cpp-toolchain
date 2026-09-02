@@ -1,0 +1,117 @@
+name: C++ CI (Windows / MSVC)
+
+on:
+  workflow_call:
+    inputs:
+      cmake-args:
+        type: string
+        default: ""
+      build-type:
+        type: string
+        default: "Debug"
+      vs-channel:
+        description: "Visual Studio 2022 channel: release or preview"
+        type: string
+        default: "release"
+      run-tests:
+        type: boolean
+        default: true
+      toolchain-ref:
+        description: "cpp-toolchain reference used for the CPM warmup project"
+        type: string
+        default: "v1"
+
+env:
+  CPM_SOURCE_CACHE: C:\cpm-cache
+  CCACHE_DIR: C:\ccache
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ccache
+        shell: pwsh
+        run: |
+          choco install ccache --no-progress -y
+          New-Item -ItemType Directory -Force -Path $env:CCACHE_DIR | Out-Null
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ github.repository }}-${{ inputs.build-type }}-windows-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ github.repository }}-${{ inputs.build-type }}-windows-
+
+      - name: Cache Visual Studio Build Tools
+        id: vs-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\BuildTools
+          key: vs-buildtools-${{ inputs.vs-channel }}-v1
+
+      - name: Install Visual Studio Build Tools (${{ inputs.vs-channel }})
+        if: steps.vs-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $channelUri = if ('${{ inputs.vs-channel }}' -eq 'preview') {
+            'https://aka.ms/vs/17/pre/channel'
+          } else {
+            'https://aka.ms/vs/17/release/channel'
+          }
+
+          Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vs_buildtools.exe' -OutFile vs_buildtools.exe
+
+          $process = Start-Process -FilePath .\vs_buildtools.exe -ArgumentList @(
+            '--quiet', '--wait', '--norestart', '--nocache',
+            '--channelUri', $channelUri,
+            '--installPath', 'C:\BuildTools',
+            '--add', 'Microsoft.VisualStudio.Workload.VCTools',
+            '--includeRecommended'
+          ) -Wait -PassThru
+
+          if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
+            throw "vs_buildtools.exe exited with code $($process.ExitCode)"
+          }
+
+      - name: Checkout CPM warmup project
+        uses: actions/checkout@v4
+        with:
+          repository: NotRiemannCousin/cpp-toolchain
+          ref: ${{ inputs.toolchain-ref }}
+          path: .cpp-toolchain
+          sparse-checkout: shared/cpm-warmup
+
+      - name: Cache CPM sources
+        id: cpm-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CPM_SOURCE_CACHE }}
+          key: cpm-source-cache-${{ hashFiles('.cpp-toolchain/shared/cpm-warmup/CMakeLists.txt') }}
+
+      - name: Warm up CPM cache
+        if: steps.cpm-cache.outputs.cache-hit != 'true'
+        shell: cmd
+        run: |
+          call "C:\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+          curl -fsSL https://github.com/cpm-cmake/CPM.cmake/releases/download/v0.43.1/get_cpm.cmake -o .cpp-toolchain\shared\cpm-warmup\get_cpm.cmake
+          cmake -S .cpp-toolchain\shared\cpm-warmup -B .cpp-toolchain\shared\cpm-warmup\build -G Ninja
+
+      - name: Configure
+        shell: cmd
+        run: |
+          call "C:\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ inputs.build-type }} -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ${{ inputs.cmake-args }}
+
+      - name: Build
+        shell: cmd
+        run: |
+          call "C:\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+          cmake --build build
+
+      - name: Test
+        if: ${{ inputs.run-tests }}
+        shell: cmd
+        run: ctest --test-dir build --output-on-failure

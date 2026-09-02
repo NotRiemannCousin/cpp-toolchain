@@ -1,0 +1,51 @@
+name: C++ CI (Linux / GCC)
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: >
+          Linux CI image to use. The default is pinned by digest so an image
+          update cannot silently change the result of an older CI run.
+        type: string
+        default: "ghcr.io/notriemanncousin/cpp-ci-linux@sha256:b98be39c2378222af9dcab6a5b1707d74b47d7c413c8569d5429a4cbfefbe981"
+      cmake-args:
+        description: "Additional -D flags passed to configure (for example, -DHERMES_WITH_ASYNC=ON)"
+        type: string
+        default: ""
+      build-type:
+        type: string
+        default: "Debug"
+      run-tests:
+        type: boolean
+        default: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restaurar ccache
+        uses: actions/cache@v4
+        with:
+          path: /opt/ccache
+          key: ccache-${{ github.repository }}-${{ inputs.build-type }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ github.repository }}-${{ inputs.build-type }}-
+
+      - name: Configurar
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ inputs.build-type }}
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          ${{ inputs.cmake-args }}
+
+      - name: Compilar
+        run: cmake --build build
+
+      - name: Testar
+        if: ${{ inputs.run-tests }}
+        run: ctest --test-dir build --output-on-failure
