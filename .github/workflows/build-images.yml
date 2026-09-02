@@ -1,8 +1,8 @@
-name: Build toolchain images
+name: Build toolchain images and test
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
     paths:
       - "linux/Dockerfile"
       - "shared/cpm-warmup/**"
@@ -46,3 +46,10 @@ jobs:
           echo "Ou, para pin por digest (mais rígido ainda):"
           echo "  ghcr.io/notriemanncousin/cpp-ci-linux@${{ steps.build.outputs.digest }}"
 
+  windows-msvc:
+    uses: ./.github/workflows/cpp-ci-windows.yml
+    with:
+      build-type: Debug
+      run-tests: true
+      vs-channel: release
+      toolchain-ref: ${{ github.ref_name }}
