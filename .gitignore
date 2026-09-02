@@ -6,3 +6,4 @@ shared/cpm-warmup/get_cpm.cmake
 shared/cpm-warmup/build/
 .cpp-toolchain/
 vs_buildtools.exe
+.idea/

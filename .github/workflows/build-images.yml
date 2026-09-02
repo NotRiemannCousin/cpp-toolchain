@@ -41,15 +41,4 @@ jobs:
 
       - name: Print pinned reference
         run: |
-          echo "Fixe os consumidores em:"
-          echo "  ghcr.io/notriemanncousin/cpp-ci-linux:gcc16.2-${{ github.sha }}"
-          echo "Ou, para pin por digest (mais rígido ainda):"
           echo "  ghcr.io/notriemanncousin/cpp-ci-linux@${{ steps.build.outputs.digest }}"
-
-  windows-msvc:
-    uses: ./.github/workflows/cpp-ci-windows.yml
-    with:
-      build-type: Debug
-      run-tests: true
-      vs-channel: release
-      toolchain-ref: ${{ github.ref_name }}
